@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "condorsmc"
+version = "0.1.0"
+description = "An opportunistic Sequential Monte Carlo Sampler on HTCondor."
+authors = [
+    "Matthew Carter <m.j.carter2@liverpool.ac.uk>",
+    "Ian Smith <i.c.smith@liverpool.ac.uk>",
+    "Simon Maskell <s.maskell@liverpool.ac.uk>",
+    "Paul Spirakis <p.spirakis@liverpool.ac.uk>",
+    "Edward Pyzer-Knapp",
+]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.6"
+appdirs = "^1.4"
+numpy = "^1.19"
+scipy = "^1.3"
+autograd = "1.5"
+pymysql = "^1.0"
+pyyaml = "^6.0"
+tqdm = "^4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.flake8]
+max-line-length = 120
+
+[mypy]
+line_length = 120

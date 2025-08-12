@@ -1,0 +1,50 @@
+coordinator:
+  id: test_coordinator
+managers:
+  - id: test_manager_0
+    followers:
+      - test_follower_0
+      - test_follower_1
+      - test_follower_2
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1025800.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_manager_1
+    followers:
+      - test_follower_3
+      - test_follower_4
+      - test_follower_5
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1017198.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'
+followers:
+  - id: test_follower_0
+    manager: test_manager_0
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_1
+    manager: test_manager_0
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_2
+    manager: test_manager_0
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_3
+    manager: test_manager_1
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_4
+    manager: test_manager_1
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_5 
+    manager: test_manager_1
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'

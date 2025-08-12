@@ -1,0 +1,23 @@
+coordinator:
+  id: test_coordinator
+followers:
+  - id: test_follower_0
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_1
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_2
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_3
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_follower_4
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE)'
+    custom_args:
+      - '+DACDTJob = true'

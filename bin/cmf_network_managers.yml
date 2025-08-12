@@ -1,0 +1,20 @@
+coordinator:
+  id: test_coordinator
+managers:
+  - id: test_manager_0
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1015128.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_manager_1
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1025800.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_manager_2
+    # requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1017178.livad.liv.ac.uk")'
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "MWS-1017178.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'
+  - id: test_manager_3
+    requirements: '(Arch=="X86_64") && (OpSys=="Windows") && (DA_CDT_HOST==TRUE) && (Machine == "WIN1064-1017198.livad.liv.ac.uk")'
+    custom_args:
+      - '+DACDTJob = true'

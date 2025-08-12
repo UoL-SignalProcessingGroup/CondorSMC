@@ -1,0 +1,15 @@
+__pycache__
+*.so
+*.cfg
+*.egg-info
+*.log
+*.exe
+*.dll
+*.txt
+*.manifest
+*.png
+*.out
+tmp*
+output
+condorsmcstan_env
+tmp*

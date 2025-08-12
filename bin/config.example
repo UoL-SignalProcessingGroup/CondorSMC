@@ -1,0 +1,12 @@
+[mysql]
+host=
+user=
+password=
+database=
+poll_delay=5
+max_poll_attempts=10
+
+[condorsmc]
+tick_rate=10
+worker_timeout=60
+manager_timeout=60
