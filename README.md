@@ -1,27 +1,18 @@
-# CondorSMC
-### An opportunistic Sequential Monte Carlo Sampler on HTCondor
-
-<!-- tempate https://github.com/scottydocs/README-template.md/blob/master/README.md -->
 ![GitHub repo size](https://img.shields.io/github/repo-size/UoL-SignalProcessingGroup/CondorSMC)
 ![GitHub contributors](https://img.shields.io/github/contributors/UoL-SignalProcessingGroup/CondorSMC)
 ![GitHub stars](https://img.shields.io/github/stars/UoL-SignalProcessingGroup/CondorSMC?style=social)
 ![GitHub forks](https://img.shields.io/github/forks/UoL-SignalProcessingGroup/CondorSMC?style=social)
 
+# CondorSMC
+### An opportunistic Sequential Monte Carlo Sampler on HTCondor
+
 CondorSMC is a Python package that enables users to sample from target densities using an opportunistic Sequential Monte Carlo sampler distributed on HTCondor. 
 
 ## Installing CondorSMC
-To install CondorSMC, follow these steps:
-
-1. To begin, install the CondorCMF package
+To install CondorSMC, run the following pip install command:
 
 ```
-pip install pip@git+https://github.com/mjcarter95/CondorCMF.git
-```
-
-2. Install the CondorSMC package
-
-```
-pip install pip@git+https://github.com/mjcarter95/CondorSMC.git
+pip install pip@git+https://github.com/UoL-SignalProcessingGroup/CondorSMC
 ```
 
 3. Set up configuration files
@@ -98,7 +89,7 @@ We appreciate citations as they let us discover what people have been doing with
 
 To cite CondorSMC in publications use:
 
-Carter, M., Devlin, L., Philips, A., Pyzer-Knapp, K., Spirakis, P. Maskell, S.,(2025). CondorSMC (1.0.0). https://github.com/UoL-SignalProcessingGroup/CondorSMC
+Carter, M., Devlin, L., Philips, A., Pyzer-Knapp, K., Spirakis, P. Maskell, S. (2025). CondorSMC (1.0.0). https://github.com/UoL-SignalProcessingGroup/CondorSMC
 
 Or use the following BibTeX entry:
 
