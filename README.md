@@ -89,14 +89,14 @@ We appreciate citations as they let us discover what people have been doing with
 
 To cite CondorSMC in publications use:
 
-Carter, M., Devlin, L., Philips, A., Pyzer-Knapp, K., Spirakis, P. Maskell, S. (2025). CondorSMC (1.0.0). https://github.com/UoL-SignalProcessingGroup/CondorSMC
+Carter, M., Devlin, L., Phillips, A., Pyzer-Knapp, K., Spirakis, P. and Maskell, S. (2025) CondorSMC (1.0.0). https://github.com/UoL-SignalProcessingGroup/CondorSMC
 
 Or use the following BibTeX entry:
 
 ```
 @misc{CondorSMC,
   title = {CondorSMC (1.0.0)},
-  author = {Carter, Matthew and Devlin, Lee and Philips, Alexander and Pyzer-Knapp, Edward and Spirakis, Paul and Maskell, Simon},
+  author = {Carter, Matthew and Devlin, Lee and Phillips, Alexander and Pyzer-Knapp, Edward and Spirakis, Paul and Maskell, Simon},
   year = {2025},
   month = may,
   howpublished = {GitHub},
