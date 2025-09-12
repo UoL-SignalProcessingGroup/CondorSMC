@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     # sequential mode (DEFAULT)
     seq = subparsers.add_parser("sequential", help="Run in single-process sequential mode.")
     build_common_parser(seq)
-    seq.add_argument("--niters", type=int, required=True,
+    seq.add_argument("--niters", type=int, default=100,
                      help="Number of iterations to run.")
 
     # distributed mode
