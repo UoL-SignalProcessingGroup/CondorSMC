@@ -143,7 +143,7 @@ def load_target(model_dir, model_name):
     elif Path(f"{model_dir}/{model_name}.stan").exists():
         print(f"Found Stan model file {model_name}.stan")
 
-        from condorsmc.smcs.bridgestan_model import StanModel
+        from condorsmc.smcs.target import StanModel
 
         # Check if data file exists
         data_file = Path(f"{model_dir}/{model_name}.json")

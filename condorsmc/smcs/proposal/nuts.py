@@ -1,9 +1,7 @@
-from typing import Tuple
-
-from scipy.stats import multivariate_normal
-
 import autograd.numpy as np
-import warnings
+
+from .base import ProposalBase
+from .utils import hmc_accept_reject
 
 MAX_TREE_DEPTH = 10
 
@@ -16,7 +14,7 @@ UP AND TESTING.
 CURRENTLY RUNS SEQUENTIALLY AND IS NOT VECTORISED.
 """
 
-class NUTSProposal:
+class NUTSProposal(ProposalBase):
     """Hamiltonian Monte Carlo Proposal
 
     Propagate samples using a Hamiltonian Monte Carlo (HMC) proposal. HMC propagates
@@ -37,167 +35,147 @@ class NUTSProposal:
         self,
         target,
         momentum_proposal,
-        integrator,
-        accept_reject: bool = False,
+        step_size: float = 1.0,
+        rng = np.random.default_rng(),
     ):
         self.target = target
         self.momentum_proposal = momentum_proposal
-        self.integrator = integrator
-        self.accept_reject = accept_reject
+        self.inv_metric = np.ones(target.dim)
+        self.step_size = step_size
+        self.rng = rng
 
-        self.dist = multivariate_normal(np.zeros(self.target.dim), np.eye(self.target.dim))
+    def propose(self, smc_state):
+        x_prime = np.zeros((smc_state.num_particles_local, self.target.dim))
+        smc_state.momenta = self.momentum_proposal.rvs(smc_state.num_particles_local, random_state=self.rng)
+        if self.target.dim == 1:
+            smc_state.momenta = smc_state.momenta[:, np.newaxis]
+        acceptance_rate = np.zeros(smc_state.num_particles_local)
+        depths = np.zeros(smc_state.num_particles_local)
+        r_prime = np.zeros((smc_state.num_particles_local, self.target.dim))
 
-        warnings.warn("NUTS is not vectorised and may take a long time to run.")
+        # Temporary fix for tempering, update logpdfgrad based on latest temperature
+        smc_state.log_pdf_grads = self.target.logpdfgrad(smc_state.positions, phi=smc_state.phi)
 
-    def rvs(self, x_cond, v_cond, grad_x, phi: float = 1.0):
-        """
-        Description:
-            Propogate a set of samples using Hamiltonian Monte Carlo (HMC).
-
-        Args:
-            x_cond: Current particle positions.
-            v_cond: Current particle velocities.
-            grad_x: Current particle gradients.
-
-        Returns:
-            x_prime: Updated particle positions.
-            v_prime: Updated particle velocities.
-            T: Length of Leapfrog trajectories.
-        """
-
-        x_prime, v_prime = np.zeros_like(x_cond), np.zeros_like(v_cond)
-        T = np.zeros(len(x_cond))
-        tree_depth = np.zeros(len(x_cond))
-
-        for i in range(len(x_cond)):
-            x_prime[i], v_prime[i], T[i], tree_depth[i] = self.generate_nuts_samples(
-                x_cond[i], v_cond[i], grad_x[i], phi=phi
+        for i in range(smc_state.num_particles_local):
+            step_size = self.step_size if isinstance(self.step_size, float) else self.step_size[i]
+            x_prime[i], r_prime[i], acceptance_rate[i], depths[i] = self.generate_nuts_samples(
+                smc_state.positions[i], smc_state.momenta[i], smc_state.log_pdf_grads[i], step_size, phi=smc_state.phi
             )
 
-        if self.accept_reject:
-            for i in range(len(x_prime)):
-                U = self.target.logpdf(x_prime[i], phi=phi) - (0.5 * np.dot(v_prime[i], v_prime[i]))
-                K = self.target.logpdf(x_cond[i], phi=phi) - (0.5 * np.dot(v_cond[i], v_cond[i]))
-                acceptance_ratio = np.exp(U - K)
-                acceptance_probability = min(1., acceptance_ratio)
+        smc_state.update_samples(x_prime, r_prime)
+        smc_state.acceptance_rate = acceptance_rate
 
-                if np.random.uniform() > acceptance_probability: # Rejected
-                    x_prime[i] = x_cond[i]
-                    v_prime[i] = v_cond[i]
+        return smc_state
 
-        # # accepted = np.random.uniform() < acceptance_probability
-
-        # # x_prime[~accepted] = x_cond[~accepted]
-        # # v_prime[~accepted] = v_cond[~accepted]
-
-        print(f"Total tree depth: {np.sum(tree_depth)}")
-        print(f"Average tree depth: {np.mean(tree_depth)}")
-        print("----------------------------------")
-
-        return x_prime, v_prime, T
-
-    def generate_nuts_samples(self, x0, v0, grad_x, phi: float = 1.0):
+    def generate_nuts_samples(self, x0, r0, grad_x, step_size, phi: float = 1.0):
 
         """
         Description
         -----------
-        Checks if a U-turn is present in the furthest nodes in the NUTS
-        tree
+        Generates samples using the NUTS proposal, Based off Alg. 3 in [1]
         """
         
-        #joint lnp of x and momentum r
         logp = self.target.logpdf(x0, phi=phi)    
-        self.H0 = logp - 0.5 * np.dot(v0, v0.T)            
-        logu = float(self.H0 - np.random.exponential(1))
+        #self.H0 = logp - 0.5 * np.dot(r0, r0.T)
+
+        self.H0 = logp - 0.5 * np.dot(r0, np.multiply(self.inv_metric,r0).T)
+
+        logu = float(self.H0 - self.rng.exponential(1))
         
-        # initialize the tree 
+        # initialize the NUTS tree 
         x = x0
         xminus = x0
         xplus = x0
-        vminus = v0
-        vplus = v0
-        v = -v0
+        rminus = r0
+        rplus = r0
+        r = r0
         gradminus = grad_x
         gradplus = grad_x
-        t=0
-        tplus=t
-        tminus=t
+ 
 
-        depth = 0  # initial depth of the tree
-        n = 1  # Initially the only valid point is the initial point.
-        stop = 0  # Main loop: will keep going until stop == 1.
+        depth = 0  
+        n = 1  
+        stop = 0  
 
         while (stop == 0):
-            # Choose a direction. -1 = backwards, 1 = forwards.
-            direction = int(2 * (np.random.uniform(0,1) < 0.5) - 1)
+            # Using a Bernoulli trial choose a direction. -1 (backwards) or +1 (forwards)
+            direction = int(2 * (self.rng.uniform(0,1) < 0.5) - 1)
 
             if (direction == -1):
-                xminus, vminus, gradminus, _, _, _, xprime, vprime, logpprime, nprime, stopprime, tminus, _, tprime = self.build_tree(xminus, vminus, gradminus, logu, direction, depth, tminus, phi)
+                xminus, rminus, gradminus, _, _, _, xprime, rprime, nprime, stopprime, alpha, nalpha= self.build_tree(xminus, rminus, gradminus, logu, direction, depth,  step_size, phi)
             else:
-                _, _, _, xplus, vplus, gradplus, xprime, vprime, logpprime, nprime, stopprime, _, tplus, tprime    = self.build_tree(xplus, vplus, gradplus, logu, direction, depth, tplus, phi)
+                _, _, _, xplus, rplus, gradplus, xprime, rprime, nprime, stopprime, alpha, nalpha  = self.build_tree(xplus, rplus, gradplus, logu, direction, depth, step_size, phi)
 
-            # Use Metropolis-Hastings to decide whether or not to move to a
-            # point from the half-tree we just generated.
-            if (stopprime == 0 and np.random.uniform() < min(1., float(nprime) / float(n))):
+
+            if (stopprime == 0 and self.rng.uniform() < min(1., float(nprime) / float(n))):
                 x = xprime
-                v = vprime
-                t = tprime
+                r = rprime
 
-            # Update number of valid points we've seen.
             n += nprime
 
-            # Decide if it's time to stop.
-            stop = stopprime or self.stop_criterion(xminus, xplus, vminus, vplus)           
+            stop = stopprime or self.stop_criterion(xminus, xplus, rminus, rplus)           
             
-            # Increment depth.
             depth += 1
             
             if(depth > MAX_TREE_DEPTH):
-                # print("Max tree size in NUTS reached")
                 break
         
-        return x, v, t, depth
+        acceptance = alpha/nalpha
+        #print(depth-1)
+        return x, r, acceptance, depth
 
-    def build_tree(self, x, v, grad_x, logu, direction, depth, t, temperature=1.0):
+    def build_tree(self, x, r, grad_x, logu, direction, depth, step_size, temperature=1.0):
+        """
+        Description
+        -----------
+        Generates samples using the recursive NUTS tree-building procedure [1]
+        """
         if (depth == 0):
-            xprime, vprime, gradprime = self.NUTSLeapfrog(x, v, grad_x, direction, temperature)
+            xprime, rprime, gradprime = self.NUTSLeapfrog(x, r, grad_x, direction, step_size, temperature)
             logpprime = self.target.logpdf(xprime, phi=temperature)
-            joint = logpprime - 0.5 * np.dot(vprime, vprime.T)
+            #joint = logpprime - 0.5 * np.dot(rprime, rprime.T)
+            joint = logpprime - 0.5 * np.dot(rprime, np.multiply(self.inv_metric,rprime).T)
+            
             nprime = int(logu < joint)
             stopprime = int((logu - 100.) >= joint)
             xminus = xprime
             xplus = xprime
-            vminus = vprime
-            vplus = vprime
+            rminus = rprime
+            rplus = rprime
             gradminus = gradprime
             gradplus = gradprime
-            tprime = t + self.integrator.step_size
-            tminus=tprime
-            tplus=tprime
+
+            alphaprime = float(np.exp(joint-self.H0))
+       
+            if np.isnan(alphaprime):
+                alphaprime = 0.0
+            else:
+
+                alphaprime = np.min([1.0, alphaprime])
+                
+            nalphaprime = 1
+
         else:
-            # Recursion: Implicitly build the height j-1 left and right subtrees.                                                                               
-            xminus, vminus, gradminus, xplus, vplus, gradplus, xprime, vprime, logpprime, nprime, stopprime, tminus, tplus, tprime  = self.build_tree(x, v, grad_x, logu, direction, depth - 1, t, temperature)
+                                                                                         
+            xminus, rminus, gradminus, xplus, rplus, gradplus, xprime, rprime,  nprime, stopprime, alphaprime, nalphaprime = self.build_tree(x, r, grad_x, logu, direction, depth - 1,  step_size, temperature)
             
-            # No need to keep going if the stopping criteria were met in the first subtree.
             if (stopprime == 0):
                 if (direction == -1):
-                    xminus, vminus, gradminus, _, _, _, xprime2, vprime2, logpprime2, nprime2, stopprime2, tminus, _,  tprime2    = self.build_tree(xminus, vminus, gradminus, logu, direction, depth - 1, tminus, temperature)
+                    xminus, rminus, gradminus, _, _, _, xprime2, rprime2, nprime2, stopprime2, alphaprime2, nalphaprime2  = self.build_tree(xminus, rminus, gradminus, logu, direction, depth - 1,  step_size, temperature)
                 else:
-                    _, _, _, xplus, vplus, gradplus, xprime2, vprime2, logpprime2, nprime2, stopprime2, _, tplus, tprime2       = self.build_tree(xplus, vplus, gradplus, logu, direction, depth - 1, tplus, temperature)           
+                    _, _, _, xplus, rplus, gradplus, xprime2, rprime2, nprime2, stopprime2, alphaprime2, nalphaprime2   = self.build_tree(xplus, rplus, gradplus, logu, direction, depth - 1, step_size, temperature)           
                
-                if (np.random.uniform() < (float(nprime2) / max(float(int(nprime) + int(nprime2)), 1.))):
+                if (self.rng.uniform() < (float(nprime2) / max(float(int(nprime) + int(nprime2)), 1.))):
                     xprime = xprime2
-                    logpprime = logpprime2
-                    vprime = vprime2
-                    tprime=tprime2
+                    rprime = rprime2
 
-                # Update the number of valid points.
                 nprime = int(nprime) + int(nprime2)
+                stopprime = int(stopprime or stopprime2 or self.stop_criterion(xminus, xplus, rminus, rplus))
+                alphaprime = alphaprime + alphaprime2
+                nalphaprime = nalphaprime + nalphaprime2
 
-                # Update the stopping criterion.
-                stopprime = int(stopprime or stopprime2 or self.stop_criterion(xminus, xplus, vminus, vplus))
 
-        return xminus, vminus, gradminus, xplus, vplus, gradplus, xprime, vprime, logpprime, nprime, stopprime, tminus, tplus, tprime
+        return xminus, rminus, gradminus, xplus, rplus, gradplus, xprime, rprime,  nprime, stopprime, alphaprime, nalphaprime
 
     def stop_criterion(self, xminus, xplus, rminus, rplus):
         """
@@ -209,25 +187,27 @@ class NUTSProposal:
         dx = xplus - xminus
         return (np.dot(dx, rminus.T) < 0) or (np.dot(dx, rplus.T) < 0)
 
-    def NUTSLeapfrog(self, x, v, grad_x, direction, temperature=1.0):
+    def NUTSLeapfrog(self, x, r, grad_x, direction, step_size, temperature=1.0):
     
         """
         Description
         -----------
-        Performs a single Leapfrog step returning the final position, velocity and gradient.
+        Performs a single Leapfrog step returning the final position, momentum and gradient.
         """
-        v = np.add(v, (direction*self.integrator.step_size/2)*grad_x)
-        x = np.add(x, direction*self.integrator.step_size*v)
+
+        r = np.add(r, (direction*step_size/2)*grad_x)
+        x = np.add(x, direction*step_size*np.multiply(self.inv_metric, r))
+        
         grad_x = self.target.logpdfgrad(x, phi=temperature)
   
-        if temperature is not None:
-            grad_x *= temperature
+        r = np.add(r, (direction*step_size/2)*grad_x)
 
-        v = np.add(v, (direction*self.integrator.step_size/2)*grad_x)
-        
-        return x, v, grad_x
+        #print(x)
+        #print(r)
+        #exit()
+        return x, r, grad_x
 
-    def logpdf(self, v):
+    def logpdf(self, smc_state):
         """
         Description:
             Calculate the log probability of the forward kernel.
@@ -239,4 +219,36 @@ class NUTSProposal:
             log_prob: Log probability of the forward kernel.
         """
 
-        return self.dist.logpdf(v)
+        return self.momentum_proposal.logpdf(smc_state.momenta_old)
+    
+    def set_inv_metric(self, diag_elements_as_array):
+        self.inv_metric = diag_elements_as_array
+    
+    def set_step_size(self, step_size):
+        self.step_size = step_size
+
+
+
+class NUTSProposalAcceptReject(NUTSProposal):
+    def __init__(
+        self,
+        target,
+        momentum_proposal,
+        step_size: float,
+        rng = np.random.default_rng(),
+    ):
+        super().__init__(target, momentum_proposal, step_size, rng)
+    
+    def propose(self, smc_state):
+        smc_state = super().propose(smc_state)
+
+        accepted = hmc_accept_reject(
+            smc_state, rng=self.rng,
+        )
+
+        smc_state.positions = np.where(accepted[:, np.newaxis], smc_state.positions, smc_state.positions_old)
+        smc_state.momenta = np.where(accepted[:, np.newaxis], smc_state.momenta, smc_state.momenta_old)
+        smc_state.log_pdfs = np.where(accepted, smc_state.log_pdfs, smc_state.log_pdfs_old)
+        smc_state.log_pdf_grads = np.where(accepted[:, np.newaxis], smc_state.log_pdf_grads, smc_state.log_pdf_grads_old)
+
+        return smc_state

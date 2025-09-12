@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
+import sys
 import traceback
 import uuid
 from pathlib import Path
@@ -10,63 +11,47 @@ from pathlib import Path
 from . import coordinator, definitions, follower, manager, sequential, writer
 from condorcmf.scheduler import utils as SchedulerUtils
 
-
-VALID_PROPOSALS = ("rw", "hmc", "nuts")
-VALID_LKERNELS = ("pseudo", "gauss")
-VALID_RECYCLING = ("ess",)
-VALID_INTEGRATORS = ("leapfrog",)
+VALID_PROPOSALS = ("nuts")
+VALID_LKERNELS = ("reverse_proposal")
+VALID_RECYCLING = ("none", "ess")
 VALID_RESAMPLING = ("centralised", "centralised_ews", "centralised_nodes")
 VALID_ROLES = ("coordinator", "manager", "follower")
 
 
-def build_common_parser(parser: argparse.ArgumentParser) -> None:
+def build_common_parser(p: argparse.ArgumentParser) -> None:
     # identity / sessioning
-    parser.add_argument("--session-id", type=str, default=str(uuid.uuid4()),
-                        help="Unique session ID (default: random UUID).")
-    parser.add_argument("--node-id", type=str, default=str(uuid.uuid4()),
-                        help="Unique node ID (default: random UUID).")
+    p.add_argument("--session-id", type=str, default=str(uuid.uuid4()),
+                   help="Unique session ID (default: random UUID).")
+    p.add_argument("--node-id", type=str, default=str(uuid.uuid4()),
+                   help="Unique node ID (default: random UUID).")
 
     # model
-    parser.add_argument("--model-dir", type=str, default=str(Path.cwd()),
-                        help="Path to the model directory.")
-    parser.add_argument("--model", type=str, required=True,
-                        help="Name of the model to run (required).")
+    p.add_argument("--model-dir", type=str, default=str(Path.cwd()),
+                   help="Path to the model directory.")
+    p.add_argument("--model", type=str, required=True,
+                   help="Name of the model to run (required).")
 
     # SMC core
-    parser.add_argument("--nsamples", type=int, default=100,
-                        help="Number of samples to generate.")
-    parser.add_argument("--proposal", choices=VALID_PROPOSALS, default="rw",
-                        help="Proposal type.")
-    parser.add_argument("--lkernel", choices=(None,) + VALID_LKERNELS, default=None,
-                        help="L-kernel (default: none).")
-    parser.add_argument("--recycling", choices=(None,) + VALID_RECYCLING, default=None,
-                        help="Recycling scheme (default: none).")
-    parser.add_argument("--integrator", choices=VALID_INTEGRATORS, default="leapfrog",
-                        help="Integrator.")
-    parser.add_argument("--resampling", choices=(None,) + VALID_RESAMPLING, default=None,
-                        help="Resampling strategy (default: none).")
-
-    # HMC extras
-    parser.add_argument("--step-size", type=float, default=0.1,
-                        help="HMC step size.")
-    parser.add_argument("--hmc-steps", type=int, default=10,
-                        help="Number of HMC steps.")
+    p.add_argument("--nsamples", type=int, default=100,
+                   help="Number of samples to generate.")
+    p.add_argument("--recycling", choices=VALID_RECYCLING, default="none",
+                   help="Recycling scheme (default: none).")
 
     # misc
-    parser.add_argument("--seed", type=int, default=0, help="Random seed.")
-    parser.add_argument("--verbose", action="store_true", help="Verbose logging.")
-    parser.add_argument("--nowait", action="store_true",
-                        help="Do not wait for all nodes to finish before exiting.")
-    parser.add_argument("--network-structure", type=str, default=None,
-                        help="YAML file describing the network structure.")
+    p.add_argument("--seed", type=int, default=0, help="Random seed.")
+    p.add_argument("--verbose", action="store_true", help="Verbose logging.")
+    p.add_argument("--nowait", action="store_true",
+                   help="Do not wait for all nodes to finish before exiting.")
+    p.add_argument("--network-structure", type=str, default=None,
+                   help="YAML file describing the network structure.")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch CondorSMC.")
 
-    subparsers = parser.add_subparsers(dest="mode", required=True)
+    subparsers = parser.add_subparsers(dest="mode", required=False)
 
-    # sequential mode
+    # sequential mode (DEFAULT)
     seq = subparsers.add_parser("sequential", help="Run in single-process sequential mode.")
     build_common_parser(seq)
     seq.add_argument("--niters", type=int, required=True,
@@ -75,8 +60,6 @@ def build_parser() -> argparse.ArgumentParser:
     # distributed mode
     dist = subparsers.add_parser("distributed", help="Run in distributed mode.")
     build_common_parser(dist)
-
-    # cluster sizing & runtimes
     dist.add_argument("--role", choices=VALID_ROLES, required=True,
                       help="Role of this node.")
     dist.add_argument("--nmanagers", type=int, default=0,
@@ -93,6 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_args_defaulting_to_sequential(parser: argparse.ArgumentParser) -> argparse.Namespace:
+    argv = sys.argv[1:]
+    if not argv or argv[0] not in ("sequential", "distributed"):
+        argv = ["sequential"] + argv
+    return parser.parse_args(argv)
+
+
 def prepare_output_dir(session_id: str, verbose: bool) -> None:
     outdir = definitions.SESSION_OUTPUT_DIR(session_id)
     if session_id == "test" and outdir.exists():
@@ -106,7 +96,7 @@ def prepare_output_dir(session_id: str, verbose: bool) -> None:
 
 
 def run_sequential(args: argparse.Namespace) -> None:
-    writer.write_session_info(args, f"{definitions.SESSION_OUTPUT_DIR(args.session_id)}")
+    # writer.write_session_info(args, f"{definitions.SESSION_OUTPUT_DIR(args.session_id)}")
     sequential.main(args=args)
 
 
@@ -147,16 +137,18 @@ def run_distributed(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parse_args_defaulting_to_sequential(parser)
 
     prepare_output_dir(args.session_id, args.verbose)
 
-    if args.mode == "sequential":
+    mode = args.mode or "sequential"
+
+    if mode == "sequential":
         run_sequential(args)
-    elif args.mode == "distributed":
+    elif mode == "distributed":
         run_distributed(args)
     else:
-        raise ValueError(f"Unknown mode {args.mode!r}")
+        raise ValueError(f"Unknown mode {mode!r}")
 
     logging.info("Ending CondorSMC session %s", args.session_id)
 
