@@ -9,66 +9,97 @@
 CondorSMC is a Python package that enables users to sample from target densities using an opportunistic Sequential Monte Carlo sampler distributed on HTCondor. 
 
 ## Installing CondorSMC
-To install CondorSMC, run the following pip install command:
 
 ```
-pip install pip@git+https://github.com/UoL-SignalProcessingGroup/CondorSMC
+pip install git+https://github.com/UoL-SignalProcessingGroup/CondorSMC
 ```
 
-3. Set up configuration files
-Modify the configuration file in `bin/config.example`, to run in distributed mode, there should be a config file for the:
-* Coordinator `config.cfg`
-* Manager `manager_config.cfg`
-* Follower `follower_config.cfg`
+## How to Run
 
-These should be placed in the SMC-Stan cache directory `~/.config/condorscmstan/0.1.0` or the working directory which you are launching CondorSMC from `working_directory/config/*.cfg`.
+### 1. Create configuration files
 
-## Using CondorSMC
-A number of example problems are provided in the `examples` folder.
+CondorSMC uses YAML (or TOML/INI) config files to supply MySQL connection details and tuning parameters. Copy `condorsmc.example.yaml` from the repository root and fill in your database credentials.
 
-### Sampling from a 5-Dimensional Multivariate Gaussian Distribution
-Suppose we want to generate samples from the distribution
+In **distributed mode**, three config files are needed — one per node role — because each role typically connects to the database with different credentials:
 
-$$\pi(x) = N(x; [-4, -2, 0, 2, 4], I_{5})$$
+| File | Role |
+|---|---|
+| `condorsmc.yaml` | Coordinator (read from the working directory) |
+| `follower_config.cfg` | Follower nodes (transferred to workers by HTCondor) |
+| `manager_config.cfg` | Manager nodes (transferred to managers by HTCondor) |
 
-We can define this target distribution, `normal5d.py`, as:
+A minimal config file looks like:
 
+```yaml
+mysql:
+  host: my-db-server     # required
+  user: myuser           # required
+  password: secret
+  database: condorsmc    # required
+
+htcondor:
+  python_env: /path/to/env.tar.gz   # required (transferred to all HTCondor nodes)
 ```
-import autograd.numpy as np  # type: ignore
-from autograd import elementwise_grad as egrad  # type: ignore
-from autograd.scipy import stats as AutoStats  # type: ignore
-from scipy.stats import multivariate_normal  # type: ignore
 
+`mysql.host`, `mysql.user`, `mysql.database`, and `htcondor.python_env` are validated at startup in distributed mode — CondorSMC will exit with a clear error if any are missing. All settings can alternatively be supplied as `CONDORSMC_*` environment variables — see `condorsmc.example.yaml` for the full list.
+
+**Where to place the files**
+
+CondorSMC searches for config files in this order:
+
+1. Path set by the `CONDORSMC_CONFIG` environment variable
+2. `condorsmc.yaml` / `.yml` / `.toml` / `.ini` in the **current working directory**
+3. `config.yaml` / `.yml` / `.toml` / `.ini` in the user config directory:
+   ```
+   python -c "from condorsmc.paths import get_package_dirs; print(get_package_dirs().config_dir)"
+   ```
+
+The follower and manager config files are looked up in `./config/` in the working directory first, then the user config directory.
+
+### 2. Define a target model
+
+Create a Python file containing a `Target` class with `dim`, `logpdf`, and `logpdfgrad`. For example, `normal5d.py`:
+
+```python
+import autograd.numpy as np
+from autograd import elementwise_grad as egrad
+from autograd.scipy import stats as AutoStats
 
 class Target:
     def __init__(self, data={}):
-        self.data = data
         self.dim = 5
-        self.mean = np.array([-4, 2, 0, 2, 4])
+        self.mean = np.array([-4, -2, 0, 2, 4])
         self.cov = np.eye(5)
 
     def logpdf(self, x):
         return AutoStats.multivariate_normal.logpdf(x, mean=self.mean, cov=self.cov)
 
     def logpdfgrad(self, x):
-        grad = egrad(self.logpdf)
-        return grad(x)
-
+        return egrad(self.logpdf)(x)
 ```
 
-We can then generate samples from this target distribution using CondorSMC in either sequential mode
+If the model requires data, place it in a JSON file with the same stem (e.g. `normal5d.json`) alongside the model file — it will be loaded automatically. Stan models (`.stan`) are also supported.
+
+### 3. Execute CondorSMC
+
+**Sequential mode** — runs locally, no HTCondor or database required:
 
 ```
-python3 -m condorsmc --session-id test --model normal5d --verbose
+python -m condorsmc sequential --model normal5d --nsamples 1000 --niters 100
 ```
 
-or in distributed mode
+**Distributed mode** — run the coordinator on the submit node; worker jobs are submitted to HTCondor automatically:
 
 ```
-python3 -m condorsmc --session-id test --node-id test_coordinator --mode distributed --nfollowers 500 --follower-runtime 15 --model normal5d --niters 200 --verbose
+python -m condorsmc distributed --role coordinator \
+    --model normal5d --nsamples 500 \
+    --nfollowers 50 --follower-runtime 30 \
+    --coordinator-runtime 600
 ```
 
-A target class must have only `data` as an argument to the constructor, have both `data` and `dim` as attributes, and contain methods to calculate the log probability (`logpdf`) and log gradient (`logpdfgrad`) of the target distribution. All data should be stored in a JSON file which has the same name as the targets `.py` file, e.g. `normal5d.json`. The data will be automatically loaded and passed to the target constructor when launching CondorSMC. 
+Pass `--debug` to either mode to enable verbose logging to stderr.
+
+A number of worked examples are provided in the `examples/` folder.
 
 ## Contributing to CondorSMC
 To contribute to CondorSMC, follow these steps:

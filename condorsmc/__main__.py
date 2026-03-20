@@ -107,7 +107,31 @@ def run_sequential(args: argparse.Namespace) -> None:
     sequential.main(args=args)
 
 
+def _validate_distributed_config(args: argparse.Namespace) -> None:
+    """Raise early with a clear message if required distributed-mode config is missing."""
+    missing = []
+    if not definitions.MYSQL_HOST:
+        missing.append("mysql.host  (CONDORSMC_MYSQL_HOST)")
+    if not definitions.MYSQL_USER:
+        missing.append("mysql.user  (CONDORSMC_MYSQL_USER)")
+    if not definitions.MYSQL_DATABASE:
+        missing.append("mysql.database  (CONDORSMC_MYSQL_DATABASE)")
+    if missing:
+        raise ValueError(
+            "Distributed mode requires MySQL connection details. Missing:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+            + "\nSet these in condorsmc.yaml or via the corresponding environment variables."
+        )
+
+    if args.role == "coordinator" and definitions.PYTHON_ENV is None:
+        raise ValueError(
+            "Distributed mode requires a Python environment tarball to transfer to HTCondor workers.\n"
+            "Set htcondor.python_env in condorsmc.yaml or the CONDORSMC_PYTHON_ENV environment variable."
+        )
+
+
 def run_distributed(args: argparse.Namespace) -> None:
+    _validate_distributed_config(args)
     if args.role == "coordinator":
         if args.session_id == "test":
             args.node_id = "test_coordinator"

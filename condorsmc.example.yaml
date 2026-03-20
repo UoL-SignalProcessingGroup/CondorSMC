@@ -1,0 +1,37 @@
+# CondorSMC configuration file
+# Copy to condorsmc.yaml (or condorsmc.yml) in your working directory,
+# or place it in the user config directory shown by:
+#   python -c "from condorsmc.paths import get_package_dirs; print(get_package_dirs().config_dir)"
+#
+# Each setting can also be overridden by the corresponding environment variable.
+
+# ── MySQL / DBQueue connection ────────────────────────────────────────────────
+# host, user, and database are required for distributed mode.
+mysql:
+  host: ""                           # CONDORSMC_MYSQL_HOST      (required)
+  user: ""                           # CONDORSMC_MYSQL_USER      (required)
+  password: ""                       # CONDORSMC_MYSQL_PASSWORD
+  database: condorsmc                # CONDORSMC_MYSQL_DATABASE  (required)
+  poll_delay: 5                      # CONDORSMC_MYSQL_POLL_DELAY  (seconds)
+
+# ── Distributed loop timing ───────────────────────────────────────────────────
+timing:
+  # Seconds between coordinator / manager / follower polling iterations.
+  tick_rate: 5                       # CONDORSMC_TICK_RATE
+
+  # Extra seconds added to coordinator_runtime to set the session deadline.
+  session_deadline_buffer: 300       # CONDORSMC_SESSION_DEADLINE_BUFFER
+
+  # Seconds of silence before a daemon is marked stale and evicted.
+  follower_timeout: 120              # CONDORSMC_FOLLOWER_TIMEOUT
+  manager_timeout: 120               # CONDORSMC_MANAGER_TIMEOUT
+
+  # How many seconds before a job deadline the coordinator starts collecting results.
+  follower_deadline_buffer: 30       # CONDORSMC_FOLLOWER_DEADLINE_BUFFER
+  manager_deadline_buffer: 30        # CONDORSMC_MANAGER_DEADLINE_BUFFER
+
+# ── HTCondor worker environment ───────────────────────────────────────────────
+htcondor:
+  # Path to the Python environment tarball that HTCondor transfers to all HTCondor nodes.
+  # Required for distributed mode.
+  python_env: ""                     # CONDORSMC_PYTHON_ENV      (required)
