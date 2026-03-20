@@ -1,3 +1,4 @@
+import logging
 import yaml
 from pathlib import Path
 from time import sleep, time
@@ -9,29 +10,21 @@ from condorcmf import definitions as CondorCMFDefinitions
 from condorcmf import utils as CondorCMFUtils
 from condorcmf.scheduler.job import Job as SchedulerJob
 
-# PYTHON_ENV = Path("/opt1/condor/apps/python/python_3.7.4.zip")
-# PYTHON_ENV = Path("/condor_data/sgmcart3/stan_env.tar.gz")
-PYTHON_ENV = Path("/condor_data/sgmcart3/test_env.tar.gz")
-# PYTHON_ENV = Path("/condor_data/sgmcart3/bridgestan_sample/test_env.tar.gz")
+logger = logging.getLogger(__name__)
+
+PYTHON_ENV = definitions.PYTHON_ENV
 
 def print_network_structure(daemons):
-    """
-    Pretty print the network structure of the daemons which can be
-
-    """
-    print("Network structure:")
-    print("Coordinator:")
-    print(f"\tid: {daemons['coordinator']['id']}")
-
-    if "managers" in daemons.keys():
-        print("Managers:")
+    """Log the network structure of the daemons."""
+    lines = ["Network structure:", f"  Coordinator: {daemons['coordinator']['id']}"]
+    if "managers" in daemons:
+        lines.append("  Managers:")
         for manager in daemons["managers"]:
-            print(f"\tid: {manager['id']}")
-            print(f"\t\tfollowers: {manager['followers']}")
-    
-    print("Followers:")
+            lines.append(f"    id: {manager['id']}  followers: {manager['followers']}")
+    lines.append("  Followers:")
     for follower in daemons["followers"]:
-        print(f"\tid: {follower['id']}, manager: {follower['manager']}")
+        lines.append(f"    id: {follower['id']}  manager: {follower.get('manager', '-')}")
+    logger.info("\n".join(lines))
 
 
 def initialise_cf_daemons(args, coordinator_deadline):

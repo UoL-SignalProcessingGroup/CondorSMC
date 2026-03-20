@@ -10,6 +10,7 @@ from scipy.stats import multivariate_normal
 from .executor.sequential import SequentialExecutor
 from .lkernel import LKernelBase, ForwardLKernel
 from .proposal import ProposalBase, NUTSProposal
+from .proposal.nuts import NUTSProposalAcceptReject
 from .recycling import (
     RecyclingBase, NoRecycling, ESSRecycling
 )

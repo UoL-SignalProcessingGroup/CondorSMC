@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from autograd.scipy import stats as AutoStats  # type: ignore
 from scipy.stats import multivariate_normal  # type: ignore
 
 from . import definitions, utils
+from .job_types import JobType, DaemonRole, DaemonStatus, JobStatus, RESULT_JOB_TYPES, RESULT_TO_ORIGIN
 
 from condorcmf.dbqueue.job import Job as DBQJob
 from condorcmf.dbqueue.result import Result as DBQResult
@@ -17,15 +19,7 @@ from condorcmf.scheduler import utils as SchedulerUtils
 from condorcmf.scheduler.job import Job as SchedulerJob
 from .smcs import importance_sampling
 
-RESULTS_JOB_CODES = [1]
-
-
-def result_map(result_job_type):
-    result_map = {
-        1: 0,  # Results (job code 1) from importance sampling (job code 0)
-    }
-
-    return result_map.get(result_job_type, "-1")
+logger = logging.getLogger(__name__)
 
 
 def initialise_sampling_jobs(args, dbq_db, followers):
@@ -39,7 +33,7 @@ def initialise_sampling_jobs(args, dbq_db, followers):
             round_id=round_id,
             to_id=follower,
             from_id=args.node_id,
-            type=0,
+            type=JobType.IMPORTANCE_SAMPLING,
             deadline=deadline,
         )
         job.create()
@@ -61,8 +55,8 @@ def process_results(
 ):
     next_round_id = str(uuid.uuid4())
 
-    if results_type == 1:
-        dbq_daemon.set_status(5)
+    if results_type == JobType.IMPORTANCE_SAMPLING_RESULT:
+        dbq_daemon.set_status(DaemonStatus.PROCESSING)
 
         mean_estimates = []
         var_estimates = []
@@ -71,11 +65,11 @@ def process_results(
         log_likelihoods = []
         recycling_constants = []
 
-        print(f"Processing {len(dbq_jobs)} importance sampling jobs")
+        logger.info("Processing %d importance sampling jobs", len(dbq_jobs))
 
         # Process results and schedule importance sampling jobs
         for dbq_job in dbq_jobs:
-            dbq_job.set_status(1)
+            dbq_job.set_status(JobStatus.RUNNING)
             results_payload = dbq_job.get_payload(store_payload=False)
 
             # Estimate quantities of interest
@@ -92,12 +86,12 @@ def process_results(
                 db=dbq_db,
                 to_id=dbq_job.from_id,
                 from_id=args.node_id,
-                type=0,
+                type=JobType.IMPORTANCE_SAMPLING,
                 session_id=args.session_id,
                 job_id=results_payload["origin_job_id"],
             )
 
-            origin_job.set_status(4)
+            origin_job.set_status(JobStatus.SUPERSEDED)
 
         # Convert to numpy arrays
         mean_estimates = np.array(mean_estimates)
@@ -124,11 +118,11 @@ def process_results(
 
         # Global resampling
         if args.resampling and len(dbq_jobs) > 1 and reschedule:
-            print(f"[{datetime.now()}] Global resampling")
+            logger.info("Global resampling")
             active_nodes = [dbq_job.from_id for dbq_job in dbq_jobs]
             importance_sampling.checkpoint_resample(args, dbq_db, active_nodes)
         else:
-            print(f"[{datetime.now()}] No global resampling")
+            logger.debug("No global resampling")
             active_nodes = [dbq_job.from_id for dbq_job in dbq_jobs]
 
         # Reschedule importance sampling jobs
@@ -142,15 +136,15 @@ def process_results(
                     round_id=next_round_id,
                     to_id=dbq_job.from_id,
                     from_id=args.node_id,
-                    type=0,
+                    type=JobType.IMPORTANCE_SAMPLING,
                     deadline=deadline,
                 )
-                print(f"Scheduling importance sampling job {job.job_id}")
+                logger.debug("Scheduling importance sampling job %s", job.job_id)
                 job.create()
                 jobs.append(job)
-                dbq_job.set_status(4)
+                dbq_job.set_status(JobStatus.SUPERSEDED)
             else:
-                print(f"Removing importance sampling job")
+                logger.debug("Removing importance sampling job")
                 dbq_job.delete()
 
         # Reschedule stale jobs
@@ -163,16 +157,16 @@ def process_results(
                     round_id=next_round_id,
                     to_id=stale_job.to_id,
                     from_id=stale_job.from_id,
-                    type=0,
+                    type=JobType.IMPORTANCE_SAMPLING,
                     deadline=deadline,
                     payload=stale_job.payload,
                 )
-                print(f"Rescheduling stale job {stale_job.job_id}")
+                logger.debug("Rescheduling stale job %s", stale_job.job_id)
                 job.create()
                 jobs.append(job)
-                stale_job.set_status(4)
+                stale_job.set_status(JobStatus.SUPERSEDED)
             else:
-                print(f"Removing stale job")
+                logger.debug("Removing stale job")
                 stale_job.delete()
 
         results_payload = {
@@ -190,7 +184,7 @@ def process_results(
             db=dbq_db,
             session_id=args.session_id,
             node_id=args.node_id,
-            role=1,
+            role=DaemonRole.MANAGER,
             attributes=results_attributes,
             payload=results_payload,
         )
@@ -204,26 +198,26 @@ def process_results(
             "z": np.array(z),
         }
 
-        dbq_daemon.set_status(1)
+        dbq_daemon.set_status(DaemonStatus.ACTIVE)
 
         return payload, jobs, next_round_id
 
 
 def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
-    print(f"ORIGIN JOB ID {dbq_job.job_id}")
+    logger.debug("Origin job id: %s", dbq_job.job_id)
     last_update = time()
 
     # Check if the deadline has passed
     if time() > dbq_job.deadline:
-        print(f"[{datetime.now()}] Passed sampling deadline, aborting job")
-        dbq_job.set_status(3)
-        dbq_daemon.set_status(0)
+        logger.warning("Passed sampling deadline, aborting job")
+        dbq_job.set_status(JobStatus.FAILED)
+        dbq_daemon.set_status(DaemonStatus.IDLE)
         return
 
     sampling_jobs, round_id = initialise_sampling_jobs(args, dbq_db, followers)
     last_round_id = round_id
 
-    print(f"Sampling for {dbq_job.deadline - time()} seconds")
+    logger.info("Sampling for %.2f seconds", dbq_job.deadline - time())
 
     # Run the job until the deadline
     _iter = 0
@@ -234,55 +228,56 @@ def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
     var_estimates = []
     zs = []
     while float(time()) < float(dbq_job.deadline):
-        dbq_daemon.set_status(1)
+        dbq_daemon.set_status(DaemonStatus.ACTIVE)
         _iter_start = time()
-        print(
-            f"[{datetime.now()}] Local sampling iteration {_importance_sampling_iter} "
-            f"| {dbq_session.deadline - time():2f} seconds remaining"
+        logger.debug(
+            "Local sampling iteration %d | %.2f seconds remaining",
+            _importance_sampling_iter, dbq_session.deadline - time(),
         )
 
         # Check for stale followers
-        dbq_session.clean_stale_daemons(ids=followers, timeout=definitions.CONDORSMC_FOLLOWER_TIMEOUT, role=1)
+        dbq_session.clean_stale_daemons(ids=followers, timeout=definitions.CONDORSMC_FOLLOWER_TIMEOUT, role=DaemonRole.MANAGER)
 
         # Number of active followers
         n_active_followers = dbq_session.n_active_daemons(ids=followers)
-        print(f"[{datetime.now()}] Number of active followers: {n_active_followers}")
+        logger.debug("Number of active followers: %d", n_active_followers)
 
         if time() > dbq_session.deadline:
             for sampling_job in sampling_jobs:
                 sampling_job.delete()
             if _importance_sampling_iter > 0:            
-                print(f"[{datetime.now()}] Passed session deadline, exiting main sampling loop and sending results to coordinator")
+                logger.info("Passed session deadline, exiting sampling loop and sending results to coordinator")
                 break
-            dbq_job.set_status(3)
-            dbq_daemon.set_status(0)
-            print(f"[{datetime.now()}] Passed session deadline, exiting main sampling loop")
+            dbq_job.set_status(JobStatus.FAILED)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
+            logger.info("Passed session deadline, exiting main sampling loop")
             return
 
         # Get the next job from the queue
         response_dbq_job = dbq_daemon.fetch_job(round_id=round_id)
         if response_dbq_job:
             origin_job = utils.fetch_origin_job(dbq_db, response_dbq_job)
-            if response_dbq_job.type in RESULTS_JOB_CODES and time() + definitions.CONDORSMC_FOLLOWER_DEADLINE_BUFFER > origin_job.deadline:
+            if response_dbq_job.type in RESULT_JOB_TYPES and time() + definitions.CONDORSMC_FOLLOWER_DEADLINE_BUFFER > origin_job.deadline:
                 dbq_session.clean_stale_jobs(
-                    job_type=result_map(response_dbq_job.type), check_deadline=False, from_id=args.node_id, clear_running=True
+                    job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type), check_deadline=False, from_id=args.node_id, clear_running=True
                 )  # Set jobs that haven't started to stale
 
                 # Number of active jobs
                 n_active_jobs = dbq_session.n_active_jobs(
-                    job_type=result_map(response_dbq_job.type),
+                    job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type),
                     from_id=args.node_id,
                 )
 
                 # Request all results
                 response_dbq_jobs = dbq_daemon.fetch_all_jobs(job_type=response_dbq_job.type, round_id=round_id)
-                print(
-                    f"[{datetime.now()}] There are {n_active_jobs} active jobs and {len(response_dbq_jobs)} results"
+                logger.debug(
+                    "There are %d active jobs and %d results",
+                    n_active_jobs, len(response_dbq_jobs),
                 )
 
                 # Fetch stale jobs from queue
                 stale_jobs, n_stale_jobs = dbq_session.fetch_stale_jobs(
-                    job_type=result_map(response_dbq_job.type), from_id=args.node_id
+                    job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type), from_id=args.node_id
                 )
 
                 # Process results and handle stale jobs
@@ -311,12 +306,12 @@ def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
         # If followers take too long to initialise, the initial importance
         # sampling jobs may be stale. Check for stale jobs and reinitialise.
         elif _importance_sampling_iter == 0:
-            stale_jobs, n_stale_jobs = dbq_session.fetch_stale_jobs(job_type=0, from_id=args.node_id)
-            print(f"[{datetime.now()}] Number of stale jobs: {n_stale_jobs}")
+            stale_jobs, n_stale_jobs = dbq_session.fetch_stale_jobs(job_type=JobType.IMPORTANCE_SAMPLING, from_id=args.node_id)
+            logger.debug("Number of stale jobs: %d", n_stale_jobs)
 
             if n_stale_jobs > 0 and n_stale_jobs == args.nfollowers:
                 # warnings.warn("All importance sampling jobs are stale. Reinitialising.")
-                print(f"[{datetime.now()}] All importance sampling jobs are stale. Reinitialising.")
+                logger.warning("All importance sampling jobs are stale. Reinitialising.")
                 for stale_job in stale_jobs:
                     stale_job.delete()
                 sampling_jobs = initialise_sampling_jobs(
@@ -326,58 +321,59 @@ def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
         _iter += 1
         _iter_run_time = time() - _iter_start
         if _iter_run_time < definitions.CONDORSMC_TICK_RATE:
-            dbq_daemon.set_status(0)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
             _iter_sleep_time = definitions.CONDORSMC_TICK_RATE - _iter_run_time
-            print(f"[{datetime.now()}] Sleeping for {_iter_sleep_time:2f} seconds")
+            logger.debug("Sleeping for %.2f seconds", _iter_sleep_time)
             sleep(_iter_sleep_time)
 
     # Number of active jobs
     n_active_jobs = dbq_session.n_active_jobs(
-        job_type=0,
+        job_type=JobType.IMPORTANCE_SAMPLING,
         from_id=args.node_id,
     )
 
     if n_active_jobs > 0 and not args.nowait:
-        print("Deadline reached. Waiting for final results.")
+        logger.info("Deadline reached. Waiting for final results.")
         while True:
             _iter_start = time()
-            print(
-                f"[{datetime.now()}] Local sampling iteration {_importance_sampling_iter} "
-                f"| {dbq_session.deadline - time():2f} seconds remaining"
+            logger.debug(
+                "Local sampling iteration %d | %.2f seconds remaining",
+                _importance_sampling_iter, dbq_session.deadline - time(),
             )
 
             # Check for stale followers
-            dbq_session.clean_stale_daemons(ids=followers, timeout=definitions.CONDORSMC_FOLLOWER_TIMEOUT, role=1)
+            dbq_session.clean_stale_daemons(ids=followers, timeout=definitions.CONDORSMC_FOLLOWER_TIMEOUT, role=DaemonRole.MANAGER)
 
             # Number of active followers
             n_active_followers = dbq_session.n_active_daemons(ids=followers)
-            print(f"[{datetime.now()}] Number of active followers: {n_active_followers}")
+            logger.debug("Number of active followers: %d", n_active_followers)
 
             # Get the next job from the queue
             # Exclude results from the follower nodes
             response_dbq_job = dbq_daemon.fetch_job(round_id=round_id)
             if response_dbq_job:
                 origin_job = utils.fetch_origin_job(dbq_db, response_dbq_job)
-                if response_dbq_job.type in RESULTS_JOB_CODES and time() + definitions.CONDORSMC_FOLLOWER_DEADLINE_BUFFER > origin_job.deadline:
+                if response_dbq_job.type in RESULT_JOB_TYPES and time() + definitions.CONDORSMC_FOLLOWER_DEADLINE_BUFFER > origin_job.deadline:
                     dbq_session.clean_stale_jobs(
-                        job_type=result_map(response_dbq_job.type), check_deadline=False, from_id=args.node_id, round_id=round_id, clear_running=True
+                        job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type), check_deadline=False, from_id=args.node_id, round_id=round_id, clear_running=True
                     )  # Set jobs that haven't started to stale
 
                     # Number of active jobs
                     n_active_jobs = dbq_session.n_active_jobs(
-                        job_type=result_map(response_dbq_job.type),
+                        job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type),
                         from_id=args.node_id,
                     )
 
                     # Request all results
                     response_dbq_jobs = dbq_daemon.fetch_all_jobs(job_type=response_dbq_job.type)
-                    print(
-                        f"[{datetime.now()}] WAIT JOBS There are {n_active_jobs} active jobs and {len(response_dbq_jobs)} results"
+                    logger.debug(
+                        "Waiting for final results: %d active jobs and %d results",
+                        n_active_jobs, len(response_dbq_jobs),
                     )
 
                     # Fetch stale jobs from queue
                     stale_jobs, n_stale_jobs = dbq_session.fetch_stale_jobs(
-                        job_type=result_map(response_dbq_job.type), from_id=args.node_id
+                        job_type=RESULT_TO_ORIGIN.get(response_dbq_job.type), from_id=args.node_id
                     )
 
                     # Process results and handle stale jobs
@@ -406,30 +402,30 @@ def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
             _iter += 1
             _iter_run_time = time() - _iter_start
             if _iter_run_time < definitions.CONDORSMC_TICK_RATE:
-                dbq_daemon.set_status(0)
+                dbq_daemon.set_status(DaemonStatus.IDLE)
                 _iter_sleep_time = definitions.CONDORSMC_TICK_RATE - _iter_run_time
-                print(f"[{datetime.now()}] Sleeping for {_iter_sleep_time:2f} seconds")
+                logger.debug("Sleeping for %.2f seconds", _iter_sleep_time)
                 sleep(_iter_sleep_time)
 
     else:
-        dbq_session.clean_stale_jobs(job_type=0, check_deadline=False, from_id=args.node_id)
+        dbq_session.clean_stale_jobs(job_type=JobType.IMPORTANCE_SAMPLING, check_deadline=False, from_id=args.node_id)
         stale_jobs, n_stale_jobs = dbq_session.fetch_stale_jobs(
-            job_type=0, from_id=args.node_id
+            job_type=JobType.IMPORTANCE_SAMPLING, from_id=args.node_id
         )
 
-        print(f"[{datetime.now()}] Number of stale jobs: {n_stale_jobs}")
+        logger.debug("Number of stale jobs: %d", n_stale_jobs)
         if n_stale_jobs == args.nfollowers:
-            print(f"[{datetime.now()}] All jobs stale, deleting")
+            logger.info("All jobs stale, deleting")
             for stale_job in stale_jobs:
                 stale_job.delete()
-            dbq_job.set_status(3)
+            dbq_job.set_status(JobStatus.FAILED)
             return
 
     # Remove jobs pending deltion
     dbq_session.clean_complete_jobs(to_id=args.node_id)
     dbq_session.clean_complete_jobs(from_id=args.node_id)
 
-    dbq_job.set_status(2)
+    dbq_job.set_status(JobStatus.COMPLETE)
 
     mean_estimates = np.array(mean_estimates)
     var_estimates = np.array(var_estimates)
@@ -451,23 +447,22 @@ def sample(args, followers, dbq_db, dbq_session, dbq_daemon, dbq_job):
         "z": z,
     }
 
-    print(f"[{datetime.now()}] Sending results to coordinator, ", end="\r") # do not add newline
     response_job = DBQJob(
         db=dbq_db,
         session_id=args.session_id,
         round_id=dbq_job.round_id,
         to_id=dbq_job.from_id,
         from_id=args.node_id,
-        type=3,
+        type=JobType.MANAGER_SAMPLING_RESULT,
         deadline=time() + args.follower_runtime,
         payload=payload,
     )
     response_job.create()
-    print(f"job id {response_job.job_id}")
+    logger.info("Sent results to coordinator (job id %s)", response_job.job_id)
 
     ## TO DO: Clean stray jobs from this round
 
-    dbq_job.set_status(2)
+    dbq_job.set_status(JobStatus.COMPLETE)
 
 
 def main(args):
@@ -478,30 +473,28 @@ def main(args):
 
     dbq_db, dbq_session, dbq_daemon, dbq_checkpoint = utils.initialise_daemon(args, session_args)
 
-    print(f"Node took {time() - session_args['start_time']} seconds to initialise")
+    logger.info("Node took %.2f seconds to initialise", time() - session_args['start_time'])
 
     _iter = 0
     _sampling_iter = 0
     last_job = time()
     while time() < dbq_session.deadline:
-        dbq_daemon.set_status(1)
+        dbq_daemon.set_status(DaemonStatus.ACTIVE)
         _iter_start = time()
 
-        print(
-            f"[{datetime.now()} {dbq_session.deadline - time()}] Global sampling iteration {_sampling_iter}"
+        logger.debug(
+            "Global sampling iteration %d | %.2f seconds remaining",
+            _sampling_iter, dbq_session.deadline - time(),
         )
 
         # Get the next job from the queue
-        dbq_job = dbq_daemon.fetch_job(job_type=2)
+        dbq_job = dbq_daemon.fetch_job(job_type=JobType.MANAGER_SAMPLING)
         if dbq_job:
-            print(
-                f"{datetime.now()} Received job (type {dbq_job.type}) {dbq_job.job_id} from {dbq_job.from_id}"
-            )
-            if dbq_job.type == 2:
-                print(f"Received job (type {dbq_job.type}) {dbq_job.job_id} from {dbq_job.from_id}")
+            if dbq_job.type == JobType.MANAGER_SAMPLING:
+                logger.info("Received job (type %d) %s from %s", dbq_job.type, dbq_job.job_id, dbq_job.from_id)
 
-                dbq_daemon.set_status(4)
-                dbq_job.set_status(1)
+                dbq_daemon.set_status(DaemonStatus.BUSY)
+                dbq_job.set_status(JobStatus.RUNNING)
 
                 sample(args, session_args["followers"], dbq_db, dbq_session, dbq_daemon, dbq_job)
                 _sampling_iter += 1
@@ -511,19 +504,19 @@ def main(args):
         # Sleep for the remainder of the tick rate
         # if time() - last_job > 60:
         #     print("No jobs received for 60 seconds, exiting")
-        #     dbq_daemon.set_status(3)
+        #     dbq_daemon.set_status(DaemonStatus.TERMINATED)
         #     return 0
 
         _iter += 1
         _iter_run_time = time() - _iter_start
         if _iter_run_time < definitions.CONDORSMC_TICK_RATE:
-            dbq_daemon.set_status(0)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
             _iter_sleep_time = definitions.CONDORSMC_TICK_RATE - _iter_run_time
-            print(f"Sleeping for {_iter_sleep_time:2f} seconds")
+            logger.debug("Sleeping for %.2f seconds", _iter_sleep_time)
             sleep(_iter_sleep_time)
 
     # Set status to inactive
-    print(f"[{datetime.now()}] Passed session deadline, aborting session")
-    dbq_daemon.set_status(3)
+    logger.info("Passed session deadline, aborting session")
+    dbq_daemon.set_status(DaemonStatus.TERMINATED)
 
     return 0

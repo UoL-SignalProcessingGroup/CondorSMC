@@ -55,7 +55,6 @@ def main(args):
         smc_stats,
         args.niters,
         record_states=False,
-        verbose=args.verbose,
     )
 
     mean_last = np.asarray(smc_stats.mean_estimate[-1])

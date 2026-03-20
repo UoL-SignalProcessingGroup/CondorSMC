@@ -39,7 +39,7 @@ def build_common_parser(p: argparse.ArgumentParser) -> None:
 
     # misc
     p.add_argument("--seed", type=int, default=0, help="Random seed.")
-    p.add_argument("--verbose", action="store_true", help="Verbose logging.")
+    p.add_argument("--debug", action="store_true", help="Enable DEBUG-level logging to stderr (default: INFO).")
     p.add_argument("--nowait", action="store_true",
                    help="Do not wait for all nodes to finish before exiting.")
     p.add_argument("--network-structure", type=str, default=None,
@@ -83,15 +83,22 @@ def parse_args_defaulting_to_sequential(parser: argparse.ArgumentParser) -> argp
     return parser.parse_args(argv)
 
 
-def prepare_output_dir(session_id: str, verbose: bool) -> None:
+def configure_logging(debug: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
+    )
+
+
+def prepare_output_dir(session_id: str, debug: bool = False) -> None:
     outdir = definitions.SESSION_OUTPUT_DIR(session_id)
     if session_id == "test" and outdir.exists():
         shutil.rmtree(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    if verbose:
-        logging.basicConfig(level=logging.INFO)
-
+    configure_logging(debug)
     logging.info("Starting CondorSMC session %s", session_id)
 
 
@@ -139,7 +146,7 @@ def main() -> None:
     parser = build_parser()
     args = parse_args_defaulting_to_sequential(parser)
 
-    prepare_output_dir(args.session_id, args.verbose)
+    prepare_output_dir(args.session_id, getattr(args, "debug", False))
 
     mode = args.mode or "sequential"
 

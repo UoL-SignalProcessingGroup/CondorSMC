@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -10,12 +11,15 @@ from autograd.scipy import stats as AutoStats  # type: ignore
 from scipy.stats import multivariate_normal  # type: ignore
 
 from . import definitions, utils
+from .job_types import JobType, DaemonRole, DaemonStatus, JobStatus
 
 from condorcmf.dbqueue.job import Job as DBQJob
 from condorcmf.dbqueue.result import Result as DBQResult
 from condorcmf.scheduler import utils as SchedulerUtils
 from condorcmf.scheduler.job import Job as SchedulerJob
 from .smcs import importance_sampling
+
+logger = logging.getLogger(__name__)
 
 
 def initialise_sampler(args, target):
@@ -115,11 +119,11 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
 
     # Check if the deadline has passed
     if time() > dbq_job.deadline:
-        print(f"[{datetime.now()}] Passed sampling deadline, aborting job")
-        dbq_job.set_status(3)
+        logger.warning("Passed sampling deadline, aborting job")
+        dbq_job.set_status(JobStatus.FAILED)
         return x, logw, p_logpdf_x
 
-    print(f"[{datetime.now()}] Sampling for {dbq_job.deadline - time()} seconds")
+    logger.info("Sampling for %.2f seconds", dbq_job.deadline - time())
 
     # Run the job until the deadline
     _iter = 0
@@ -137,18 +141,18 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
             break
 
         if time() > dbq_session.deadline and _iter > 0:
-            dbq_job.set_status(2)
-            dbq_daemon.set_status(0)
-            print(f"[{datetime.now()}] Passed session deadline, aborting job")
-            break        
+            dbq_job.set_status(JobStatus.COMPLETE)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
+            logger.info("Passed session deadline, aborting job")
+            break
         elif time() > dbq_session.deadline:
-            dbq_job.set_status(3)
-            dbq_daemon.set_status(0)
-            print(f"[{datetime.now()}] Passed session deadline, aborting job [no iters]")
+            dbq_job.set_status(JobStatus.FAILED)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
+            logger.info("Passed session deadline before first iteration, aborting job")
             return x, logw, p_logpdf_x
 
         if time() - last_update > 30:
-            dbq_daemon.set_status(4)
+            dbq_daemon.set_status(DaemonStatus.BUSY)
             last_update = time()
 
         # Normalise importance weights and calculate the log likelihood
@@ -167,7 +171,7 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
 
         # Calculate the effective sample size and resample if necessary
         ess = importance_sampling.calculate_ess(wn)
-        print("ESS: ", ess / args.nsamples)
+        logger.debug("ESS: %.4f", ess / args.nsamples)
         ess_iters.append(ess)
         if ess < args.nsamples / 2:
             x, logw = importance_sampling.resample(x, wn, log_likelihood)
@@ -197,9 +201,9 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
 
         # Ensure that all samples and log weights are finite
         if np.all(np.isnan(x_new)) or np.all(np.isinf(x_new)) or np.all(np.isnan(logw_new)) or np.all(np.isinf(logw_new)):
-            print("FAILED BRO")
-            dbq_job.set_status(3)
-            dbq_daemon.set_status(0)
+            logger.error("All samples or log weights are nan/inf, aborting job")
+            dbq_job.set_status(JobStatus.FAILED)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
             # print(f"[{datetime.now()}] All samples or log weights are nan or inf, aborting job")
             return x, logw, p_logpdf_x
 
@@ -219,9 +223,9 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
     mean_estimates.append(mean_estimate)
     variance_estimates.append(variance_estimate)
 
-    dbq_daemon.set_status(4)
-    dbq_job.set_status(2)
-    print(f"[{datetime.now()}] Sampling complete after {_iter} iterations ({_iter * args.nsamples} samples)")
+    dbq_daemon.set_status(DaemonStatus.BUSY)
+    dbq_job.set_status(JobStatus.COMPLETE)
+    logger.info("Sampling complete after %d iterations (%d samples)", _iter, _iter * args.nsamples)
 
     if recycling:
         # Recycle the mean and variance estimates
@@ -265,7 +269,7 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
         db=dbq_db,
         session_id=dbq_session.session_id,
         node_id=args.node_id,
-        role=2,
+        role=DaemonRole.FOLLOWER,
         attributes=results_attributes,
         payload=results_payload,
     )
@@ -306,14 +310,14 @@ def sample(args, target, smcs_args, dbq_db, dbq_session, dbq_daemon, dbq_job, db
         round_id=dbq_job.round_id,
         to_id=dbq_job.from_id,
         from_id=args.node_id,
-        type=1,
+        type=JobType.IMPORTANCE_SAMPLING_RESULT,
         deadline=time() + args.follower_runtime,
         payload=payload,
     )
     response_job.create()
     # print(f"Response job created with id {response_job.job_id}")
 
-    dbq_job.set_status(2)
+    dbq_job.set_status(JobStatus.COMPLETE)
 
     return x, logw, p_logpdf_x
 
@@ -324,21 +328,21 @@ def main(args):
 
     target = utils.load_target(".", f"{args.model}")
 
-    print("initialising database")
+    logger.info("Initialising database")
     dbq_db, dbq_session, dbq_daemon, dbq_checkpoint = utils.initialise_daemon(args, session_args)
 
-    print(f"Node took {time() - session_args['start_time']} seconds to initialise")
+    logger.info("Node took %.2f seconds to initialise", time() - session_args['start_time'])
 
     smcs_args = initialise_sampler(args, target)
     # Check for checkpoint
     if dbq_checkpoint.exists(0):
-        print(f"Checkpoint found, loading...")
+        logger.info("Checkpoint found, loading...")
         checkpoint_payload = dbq_checkpoint.get(0)
         smcs_x = np.array(checkpoint_payload["x"])
         smcs_logw = np.array(checkpoint_payload["logw"])
         smcs_p_logpdf_x = np.array(checkpoint_payload["p_logpdf_x"])
     else:
-        print(f"No checkpoint found, initialising...")
+        logger.info("No checkpoint found, initialising...")
         sample_proposal = multivariate_normal(
             mean=np.zeros(target.dim), cov=np.eye(target.dim)
         )
@@ -350,46 +354,38 @@ def main(args):
     _iter = 0
     _sampling_iter = 0
     last_job = time()
-    print(dbq_session.deadline, last_job)
+    logger.debug("Session deadline: %s", dbq_session.deadline)
     while time() < dbq_session.deadline:
-        dbq_daemon.set_status(1)
+        dbq_daemon.set_status(DaemonStatus.ACTIVE)
         _iter_start = time()
 
-        print(
-            f"[{datetime.now()} {dbq_session.deadline - time()}] Sampling iteration {_sampling_iter}"
+        logger.debug(
+            "Sampling iteration %d | %.2f seconds remaining",
+            _sampling_iter, dbq_session.deadline - time(),
         )
 
         # Get the next job from the queue
         dbq_job = dbq_daemon.fetch_job()
         if dbq_job:
-            print(
-                f"{datetime.now()} Received job {dbq_job.job_id} from {dbq_job.from_id}"
-            )
+            logger.info("Received job %s from %s", dbq_job.job_id, dbq_job.from_id)
 
-            if dbq_job.type == 0:
-                print(f"{datetime.now()} Importance sampling job received")
+            if dbq_job.type == JobType.IMPORTANCE_SAMPLING:
+                logger.info("Importance sampling job received")
 
-                dbq_daemon.set_status(4)
-                dbq_job.set_status(1)
+                dbq_daemon.set_status(DaemonStatus.BUSY)
+                dbq_job.set_status(JobStatus.RUNNING)
 
                 if (
                     "x" not in dbq_job.payload and "logw" not in dbq_job.payload
                 ):
-                    print("Resuming sampling")
-                    # if dbq_checkpoint.exists(0):
-                    #     checkpoint_payload = dbq_checkpoint.get(0)
-                    #     dbq_job.payload = {
-                    #         "x": checkpoint_payload["x"],
-                    #         "logw": checkpoint_payload["logw"],
-                    #     }
-                    # else:
+                    logger.debug("Resuming sampling from local state")
                     dbq_job.payload = {
                         "x": smcs_x,
                         "logw": smcs_logw,
                         "p_logpdf_x": smcs_p_logpdf_x,
                     }
                 else:
-                    print("Fetching samples")
+                    logger.debug("Fetching samples from job payload")
                     dbq_job.get_payload()
 
                 smcs_x, smcs_logw, smcs_p_logpdf_x = sample(
@@ -397,26 +393,26 @@ def main(args):
                 )
                 _sampling_iter += 1
 
-                dbq_daemon.set_status(1)
+                dbq_daemon.set_status(DaemonStatus.ACTIVE)
 
             last_job = time()
 
         # Sleep for the remainder of the tick rate
         # if time() - last_job > 60:
         #     print("No jobs received for 60 seconds, exiting")
-        #     dbq_daemon.set_status(3)
+        #     dbq_daemon.set_status(DaemonStatus.TERMINATED)
         #     return 0
 
         _iter += 1
         _iter_run_time = time() - _iter_start
         if _iter_run_time < definitions.CONDORSMC_TICK_RATE:
-            dbq_daemon.set_status(0)
+            dbq_daemon.set_status(DaemonStatus.IDLE)
             _iter_sleep_time = definitions.CONDORSMC_TICK_RATE - _iter_run_time
             # print(f"Sleeping for {_iter_sleep_time:2f} seconds")
             sleep(_iter_sleep_time)
 
     # Set status to inactive
-    print("Passed session deadline, aborting session")
-    dbq_daemon.set_status(3)
+    logger.info("Passed session deadline, aborting session")
+    dbq_daemon.set_status(DaemonStatus.TERMINATED)
 
     return 0

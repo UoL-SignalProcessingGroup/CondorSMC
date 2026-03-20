@@ -1,15 +1,20 @@
 import importlib
 import json
+import logging
 import shutil
 import sys
 from pathlib import Path
 from time import time
 
-from . import definitions, utils
+from . import definitions
+from .job_types import DaemonRole, DaemonStatus
+
+logger = logging.getLogger(__name__)
 
 try:
     from condorcmf.dbqueue.connector.mysql import MySQLConnector as DBQConnector  # type: ignore
-except:
+except ImportError:
+    logger.debug("mysql-connector-python not available, falling back to PyMySQL")
     from condorcmf.dbqueue.connector.pymysql import PyMySQLConnector as DBQConnector  # type: ignore
 
 from condorcmf.dbqueue.checkpoint import Checkpoint as DBQCheckpoint
@@ -19,14 +24,10 @@ from condorcmf.dbqueue.session import Session as DBQSession
 
 
 def initialise_daemon(args, json_args=None):
-    if args.role == "coordinator":
-        role = 0
-    elif args.role == "manager":
-        role = 1
-    elif args.role == "follower":
-        role = 2   
-    else:
-        raise ValueError(f"Invalid role {args.role}")
+    try:
+        role = DaemonRole[args.role.upper()]
+    except KeyError:
+        raise ValueError(f"Invalid role {args.role!r}. Must be one of: {[r.name.lower() for r in DaemonRole]}")
 
     # Create the database connection
     dbq_db = DBQConnector(
@@ -61,7 +62,7 @@ def initialise_daemon(args, json_args=None):
     # Initialise and register the dbqueue daemonl
     dbq_daemon = DBQDaemon(dbq_db, args.session_id, role, node_id=args.node_id)
     dbq_daemon.join()
-    dbq_daemon.set_status(0)
+    dbq_daemon.set_status(DaemonStatus.IDLE)
 
     # Initialise the checkpoint
     dbq_checkpoint = DBQCheckpoint(
@@ -123,7 +124,7 @@ def load_target(model_dir, model_name):
     start = time()
     # Check if Python model file exists
     if Path(f"{model_dir}/{model_name}.py").exists():
-        print(f"Found Python model file {model_name}.py")
+        logger.info("Found Python model file %s.py", model_name)
         try:
             sys.path.append(model_dir)
             module = importlib.import_module(model_name)
@@ -141,7 +142,7 @@ def load_target(model_dir, model_name):
         except ImportError:
             raise ImportError(f"Failed to import target class from {model_name}.py")
     elif Path(f"{model_dir}/{model_name}.stan").exists():
-        print(f"Found Stan model file {model_name}.stan")
+        logger.info("Found Stan model file %s.stan", model_name)
 
         from condorsmc.smcs.target import StanModel
 
@@ -149,7 +150,7 @@ def load_target(model_dir, model_name):
         data_file = Path(f"{model_dir}/{model_name}.json")
 
         if not data_file.exists():
-            print(f"Could not find data file {model_name}.json")
+            logger.debug("No data file %s.json found", model_name)
             data_file = None
 
         target = StanModel(model_name, f"{model_dir}/{model_name}.stan", str(data_file))
@@ -159,7 +160,7 @@ def load_target(model_dir, model_name):
             f"Could not find model file {model_name}.py or {model_name}.stan"
         )
 
-    print(f"Loaded target model in {time() - start:.2f} seconds")
+    logger.info("Loaded target model in %.2f seconds", time() - start)
 
     return target
 
@@ -187,7 +188,7 @@ def write_session_args(
         ("step_size", str(args.step_size)),
         ("hmc_steps", str(args.hmc_steps)),
         ("seed", str(args.seed)),
-        ("verbose", str(args.verbose)),
+        ("debug", str(getattr(args, "debug", False))),
     ]
 
     # Write the session arguments to file

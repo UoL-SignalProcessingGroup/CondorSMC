@@ -55,11 +55,12 @@ class SMCSampler:
         self.resample_method = MultinomialResampling(executor=self.executor, rng=self.rng)
         self.weight_updater = WeightUpdater(self.target, self.forward_kernel, self.lkernel, self.executor)
 
-    def sample(self, smc_state, smc_statistics, num_iters, record_states=False, verbose=False):
+    def sample(self, smc_state, smc_statistics, num_iters, record_states=False):
         start_time = time()
 
         iterator = range(num_iters)
-        iterator = tqdm(iterator, desc="Sampling") if self.executor.rank == 0 and verbose else iterator
+        if self.executor.rank == 0:
+            iterator = tqdm(iterator, desc="Sampling")
 
         smc_states = []
         for k in iterator:
