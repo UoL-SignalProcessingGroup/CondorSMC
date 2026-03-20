@@ -13,10 +13,10 @@ from scipy.stats import multivariate_normal  # type: ignore
 from . import definitions, utils
 from .job_types import JobType, DaemonRole, DaemonStatus, JobStatus, RESULT_JOB_TYPES, RESULT_TO_ORIGIN
 
-from condorcmf.dbqueue.job import Job as DBQJob
-from condorcmf.dbqueue.result import Result as DBQResult
-from condorcmf.scheduler import utils as SchedulerUtils
-from condorcmf.scheduler.job import Job as SchedulerJob
+from .dbqueue.job import Job as DBQJob
+from .dbqueue.result import Result as DBQResult
+from .scheduler import utils as SchedulerUtils
+from .scheduler.job import Job as SchedulerJob
 from .smcs import importance_sampling
 
 logger = logging.getLogger(__name__)

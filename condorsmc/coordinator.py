@@ -13,21 +13,19 @@ from autograd.scipy import stats as AutoStats  # type: ignore
 from . import network, definitions, utils, writer
 from .job_types import JobType, DaemonRole, DaemonStatus, JobStatus, RESULT_JOB_TYPES, RESULT_TO_ORIGIN
 
-import condorcmf.definitions as CondorCMFDefinitions
-
 try:
-    from condorcmf.dbqueue.connector.mysql import MySQLConnector as DBQConnector  # type: ignore
+    from .dbqueue.connector.mysql import MySQLConnector as DBQConnector  # type: ignore
 except ImportError:
-    from condorcmf.dbqueue.connector.pymysql import PyMySQLConnector as DBQConnector  # type: ignore
+    from .dbqueue.connector.pymysql import PyMySQLConnector as DBQConnector  # type: ignore
 
 logger = logging.getLogger(__name__)
 
-from condorcmf.dbqueue.daemon import Daemon as DBQDaemon
-from condorcmf.dbqueue.job import Job as DBQJob
-from condorcmf.dbqueue.result import Result as DBQResult
-from condorcmf.dbqueue.session import Session as DBQSession
-from condorcmf.scheduler import utils as SchedulerUtils
-from condorcmf.scheduler.job import Job as SchedulerJob
+from .dbqueue.daemon import Daemon as DBQDaemon
+from .dbqueue.job import Job as DBQJob
+from .dbqueue.result import Result as DBQResult
+from .dbqueue.session import Session as DBQSession
+from .scheduler import utils as SchedulerUtils
+from .scheduler.job import Job as SchedulerJob
 from .smcs import importance_sampling
 
 

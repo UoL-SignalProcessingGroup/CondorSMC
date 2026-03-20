@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 from . import coordinator, definitions, follower, manager, sequential, writer
-from condorcmf.scheduler import utils as SchedulerUtils
+from .scheduler import utils as SchedulerUtils
 
 VALID_PROPOSALS = ("nuts")
 VALID_LKERNELS = ("reverse_proposal")

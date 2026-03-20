@@ -6,9 +6,7 @@ from time import sleep, time
 import uuid
 
 from . import definitions, utils
-from condorcmf import definitions as CondorCMFDefinitions
-from condorcmf import utils as CondorCMFUtils
-from condorcmf.scheduler.job import Job as SchedulerJob
+from .scheduler.job import Job as SchedulerJob
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +40,16 @@ def initialise_cf_daemons(args, coordinator_deadline):
     utils.archive_condorsmc(
         definitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorsmc",
         ),
     )
 
     # Archive the CondorCMF package
-    CondorCMFUtils.archive_condorcmf(
+    utils.archive_condorsmc(
         CondorCMFDefinitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorcmf",
         ),
     )
@@ -96,11 +94,11 @@ def initialise_cf_daemons(args, coordinator_deadline):
 
         input_files = [
             Path(
-                CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                definitions.SESSION_CACHE_DIR(args.session_id),
                 "condorsmc.zip",
             ),
             Path(
-                CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                definitions.SESSION_CACHE_DIR(args.session_id),
                 "condorcmf.zip",
             ),
             PYTHON_ENV,
@@ -159,16 +157,16 @@ def initialise_cmf_daemons(args, coordinator_deadline):
     utils.archive_condorsmc(
         definitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorsmc",
         ),
     )
 
     # Archive the CondorCMF package
-    CondorCMFUtils.archive_condorcmf(
+    utils.archive_condorsmc(
         CondorCMFDefinitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorcmf",
         ),
     )
@@ -219,11 +217,11 @@ def initialise_cmf_daemons(args, coordinator_deadline):
 
         input_files = [
             Path(
-                CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                definitions.SESSION_CACHE_DIR(args.session_id),
                 "condorsmc.zip",
             ),
             Path(
-                CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                definitions.SESSION_CACHE_DIR(args.session_id),
                 "condorcmf.zip",
             ),
             PYTHON_ENV,
@@ -275,11 +273,11 @@ def initialise_cmf_daemons(args, coordinator_deadline):
 
             input_files = [
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorsmc.zip",
                 ),
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorcmf.zip",
                 ),
                 PYTHON_ENV,
@@ -364,16 +362,16 @@ def load_network(args, coordinator_deadline, struct_path):
     utils.archive_condorsmc(
         definitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorsmc",
         ),
     )
 
     # Archive the CondorCMF package
-    CondorCMFUtils.archive_condorcmf(
+    utils.archive_condorsmc(
         CondorCMFDefinitions.PACKAGE_ROOT_DIR.parent,
         Path(
-            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+            definitions.SESSION_CACHE_DIR(args.session_id),
             "condorcmf",
         ),
     )
@@ -421,11 +419,11 @@ def load_network(args, coordinator_deadline, struct_path):
 
             input_files = [
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorsmc.zip",
                 ),
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorcmf.zip",
                 ),
                 PYTHON_ENV,
@@ -483,11 +481,11 @@ def load_network(args, coordinator_deadline, struct_path):
 
                     input_files = [
                         Path(
-                            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                            definitions.SESSION_CACHE_DIR(args.session_id),
                             "condorsmc.zip",
                         ),
                         Path(
-                            CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                            definitions.SESSION_CACHE_DIR(args.session_id),
                             "condorcmf.zip",
                         ),
                         PYTHON_ENV,
@@ -577,11 +575,11 @@ def load_network(args, coordinator_deadline, struct_path):
 
             input_files = [
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorsmc.zip",
                 ),
                 Path(
-                    CondorCMFDefinitions.SESSION_CACHE_DIR(args.session_id),
+                    definitions.SESSION_CACHE_DIR(args.session_id),
                     "condorcmf.zip",
                 ),
                 PYTHON_ENV,

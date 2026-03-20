@@ -3,7 +3,7 @@ import time
 
 import mysql.connector  # type: ignore
 
-from condorcmf import definitions
+MYSQL_MAX_POLL_ATTEMPTS = 5
 
 """
 TO DO
@@ -44,7 +44,7 @@ class MySQLConnector:
             self.connection.close()
             logging.info("Disconnected from MySQL database")
 
-    def insert(self, table, columns, values, limit=definitions.MYSQL_MAX_POLL_ATTEMPTS):
+    def insert(self, table, columns, values, limit=MYSQL_MAX_POLL_ATTEMPTS):
         try:
             self.cursor.execute(
                 "INSERT INTO {} {} VALUES {}".format(table, columns, values)
@@ -69,7 +69,7 @@ class MySQLConnector:
         columns,
         where_clause,
         orderby=None,
-        limit=definitions.MYSQL_MAX_POLL_ATTEMPTS,
+        limit=MYSQL_MAX_POLL_ATTEMPTS,
     ):
         try:
             query = f"SELECT {columns} FROM {table} WHERE {where_clause}"
@@ -97,7 +97,7 @@ class MySQLConnector:
         columns,
         where_clause,
         orderby=None,
-        limit=definitions.MYSQL_MAX_POLL_ATTEMPTS,
+        limit=MYSQL_MAX_POLL_ATTEMPTS,
     ):
         try:
             query = f"SELECT {columns} FROM {table} WHERE {where_clause}"
@@ -120,7 +120,7 @@ class MySQLConnector:
         return result
 
     def update(
-        self, table, set_values, where_clause, limit=definitions.MYSQL_MAX_POLL_ATTEMPTS
+        self, table, set_values, where_clause, limit=MYSQL_MAX_POLL_ATTEMPTS
     ):
         try:
             self.cursor.execute(
@@ -141,7 +141,7 @@ class MySQLConnector:
             return False
         return True
 
-    def delete(self, table, where_clause, limit=definitions.MYSQL_MAX_POLL_ATTEMPTS):
+    def delete(self, table, where_clause, limit=MYSQL_MAX_POLL_ATTEMPTS):
         try:
             self.cursor.execute("DELETE FROM {} WHERE {}".format(table, where_clause))
             self.connection.commit()

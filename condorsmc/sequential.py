@@ -32,7 +32,7 @@ def main(args):
     recycling = smcs.create_recycling(args.recycling, executor=executor)
 
     initialiser = smcs.initialise.GaussianInitialiser(target, forward_kernel, executor, rng)
-    adaption = smcs.adaption.ParallelWindowedAdaption(target, forward_kernel, lkernel, recycling, executor, rng)
+    adaption = smcs.adaptation.ParallelWindowedAdaption(target, forward_kernel, lkernel, recycling, executor, rng)
 
     adaption_stats = smcs.SMCStatistics(args.nsamples, dim, executor)
     initial_state = initialiser.init(args.nsamples)

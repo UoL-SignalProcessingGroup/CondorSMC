@@ -12,15 +12,15 @@ from .job_types import DaemonRole, DaemonStatus
 logger = logging.getLogger(__name__)
 
 try:
-    from condorcmf.dbqueue.connector.mysql import MySQLConnector as DBQConnector  # type: ignore
+    from .dbqueue.connector.mysql import MySQLConnector as DBQConnector  # type: ignore
 except ImportError:
     logger.debug("mysql-connector-python not available, falling back to PyMySQL")
-    from condorcmf.dbqueue.connector.pymysql import PyMySQLConnector as DBQConnector  # type: ignore
+    from .dbqueue.connector.pymysql import PyMySQLConnector as DBQConnector  # type: ignore
 
-from condorcmf.dbqueue.checkpoint import Checkpoint as DBQCheckpoint
-from condorcmf.dbqueue.daemon import Daemon as DBQDaemon
-from condorcmf.dbqueue.job import Job as DBQJob
-from condorcmf.dbqueue.session import Session as DBQSession
+from .dbqueue.checkpoint import Checkpoint as DBQCheckpoint
+from .dbqueue.daemon import Daemon as DBQDaemon
+from .dbqueue.job import Job as DBQJob
+from .dbqueue.session import Session as DBQSession
 
 
 def initialise_daemon(args, json_args=None):

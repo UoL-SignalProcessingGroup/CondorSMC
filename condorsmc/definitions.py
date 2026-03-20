@@ -7,7 +7,10 @@ PACKAGE_ROOT_DIR = Path(__file__).resolve().parent
 
 DIRS = get_package_dirs()
 CONDORSMC_OUTPUT_DIR = DIRS.output_dir
-PACKAGE_CONFIG_DIR = DIRS.config_dir
+PACKAGE_CONFIG_DIR  = DIRS.config_dir
+PACKAGE_CACHE_DIR   = DIRS.cache_dir
+PACKAGE_LOG_DIR     = DIRS.log_dir
+PACKAGE_DATA_DIR    = DIRS.data_dir
 
 # Path to the Python environment archive shipped to HTCondor workers.
 # Override with the CONDORSMC_PYTHON_ENV environment variable.
@@ -17,3 +20,15 @@ PYTHON_ENV = Path(
 
 def SESSION_OUTPUT_DIR(session_id: str) -> Path:
     return session_dirs(session_id, ensure=True).output
+
+def SESSION_CACHE_DIR(session_id: str) -> Path:
+    return session_dirs(session_id).cache
+
+def SESSION_LOG_DIR(session_id: str) -> Path:
+    return session_dirs(session_id).log
+
+def SESSION_CONFIG_DIR(session_id: str) -> Path:
+    return session_dirs(session_id).config
+
+def SESSION_DATA_DIR(session_id: str) -> Path:
+    return session_dirs(session_id).data
